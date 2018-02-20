@@ -101,22 +101,15 @@ def get_volume(coin, exchange):
     
 def get_fiat(exchange):
     
-    if exchange == 'okex':
-        fiat = 'USDT'
-    elif exchange == 'bitfinex':
+    usd = ['bitfinex', 'huobi', 'gdax', 'kraken']
+    usdt = ['okex', 'bittrex', 'hitbtc', 'poloniex']
+    
+    if exchange in usd:
         fiat = 'USD'
-    elif exchange == 'bittrex':
+    elif exchange in usdt:
         fiat = 'USDT'
-    elif exchange == 'huobi':
-        fiat = 'USD'
-    elif exchange == 'hitbtc':
-        fiat = 'USDT'
-    elif exchange == 'gdax':
-        fiat = 'USD'
-    elif exchange == 'poloniex':
-        fiat = 'USDT'
-    elif exchange == 'kraken':
-        fiat = 'USD'
+    else:
+        print(exchange, 'not found in get_fiat function')
         
     return fiat
 
@@ -216,7 +209,7 @@ def opportunities(exchange): # fiat = USD or USDT
         deltas.append(delta)
         pairs.append(pair)
     
-    for final_delta, pair in zip(deltas, pairs):
+    for final_delta, pair 2in zip(deltas, pairs):
         if abs(final_delta) >= 2:
             coin = pair.replace('/BTC', '')
             check_vola(exchange, coin, final_delta)
