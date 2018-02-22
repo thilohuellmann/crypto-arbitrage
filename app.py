@@ -17,10 +17,7 @@ hitbtc = ccxt.hitbtc() # USDT
 gdax = ccxt.gdax() # USD
 poloniex = ccxt.poloniex() # USDT
 
-#huobi = ccxt.huobi() # USDT
-#coinone = ccxt.coinone() # KRW
-#bithumb = ccxt.bithumb() # KRW
-
+exchanges = [(bitfinex, 'bitfinex'), (kraken, 'kraken'), (okex, 'okex'), (bittrex, 'bittrex'), (hitbtc, 'hitbc'), (gdax, 'gdax'), (poloniex, 'poloniex')]
 
 def check_vola(exchange, coin, opportunity):
 
@@ -31,9 +28,6 @@ def check_vola(exchange, coin, opportunity):
     r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=Binance')
     response = r.json()
     binance_price_data = response['Data']
-    
-    
-    #########################################
     
     ex_avg = []
     for ex in exchange_price_data:
@@ -100,7 +94,6 @@ def get_volume(coin, exchange):
         return 0
     
 def get_fiat(exchange):
-    
     usd = ['bitfinex', 'huobi', 'gdax', 'kraken']
     usdt = ['okex', 'bittrex', 'hitbtc', 'poloniex']
     
@@ -114,58 +107,17 @@ def get_fiat(exchange):
     return fiat
 
 def get_ticker(exchange):
-    
-    fiat = get_fiat(exchange)
-    
-    if exchange == 'okex':
-        ticker = okex.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'bitfinex':
-        ticker = bitfinex.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'bittrex':
-        ticker = bittrex.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'huobi':
-        ticker = huobi.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'hitbtc':
-        ticker = hitbtc.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'gdax':
-        ticker = gdax.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'poloniex':
-        ticker = poloniex.fetch_ticker('BTC/' + fiat)['last']
-    elif exchange == 'kraken':
-        ticker = kraken.fetch_ticker('BTC/' + fiat)['last']
+    fiat = get_fiat(exchange[1])
+    ticker = exchange[0].fetch_ticker('BTC/' + fiat)['last']
         
     return ticker
 
 def get_pair(exchange, pair):
-    
-    if exchange == 'okex':
-        pair = okex.fetch_ticker(pair)['last']
-    elif exchange == 'bitfinex':
-        pair = bitfinex.fetch_ticker(pair)['last']
-    elif exchange == 'bittrex':
-        pair = bittrex.fetch_ticker(pair)['last']
-    elif exchange == 'huobi':
-        pair = huobi.fetch_ticker(pair)['last']
-    elif exchange == 'hitbtc':
-        pair = hitbtc.fetch_ticker(pair)['last']
-    elif exchange == 'gdax':
-        pair = gdax.fetch_ticker(pair)['last']
-    elif exchange == 'poloniex':
-        pair = poloniex.fetch_ticker(pair)['last']
-    elif exchange == 'kraken':
-        pair = kraken.fetch_ticker(pair)['last']
-        
+    pair = exchange.fetch_ticker(pair)['last']
     return pair
 
-exchanges = ['okex',
-             'poloniex', 
-             'kraken',
-             'bitfinex',
-             'bittrex',  
-             'hitbtc', 
-             'gdax']
-
 def get_pairs(exchange):
+    
     if exchange == 'okex':
         btc_pairs = ['BCD/BTC', 'ETH/BTC', 'EOS/BTC', 'TRX/BTC', 'WTC/BTC', 'BTG/BTC', 'NEO/BTC', 'ICX/BTC', 'XLM/BTC', 'LTC/BTC', 'IOTA/BTC', 'ELF/BTC', 'QTUM/BTC', 'HSR/BTC', 'ETC/BTC', 'ZRX/BTC', 'OMG/BTC', 'LRC/BTC', 'MDA/BTC', 'SNT/BTC', 'SUB/BTC', 'BRD/BTC', 'DNT/BTC', 'EDO/BTC', 'XMR/BTC', 'LEND/BTC', 'CTR/BTC', 'LINK/BTC', 'EVX/BTC', 'ZEC/BTC', 'AST/BTC', 'FUN/BTC', 'ENG/BTC', 'REQ/BTC', 'KNC/BTC', 'DASH/BTC', 'MANA/BTC', 'MCO/BTC', 'MTL/BTC', 'DGD/BTC', 'OAX/BTC', 'ARK/BTC', 'NULS/BTC', 'GAS/BTC', 'SALT/BTC', 'ICN/BTC', 'RCN/BTC', 'MTH/BTC', 'RDN/BTC', 'VIB/BTC', 'STORJ/BTC', 'SNGLS/BTC', 'SNM/BTC', 'BNT/BTC', 'PPT/BTC']
     elif exchange == 'bitfinex':
@@ -189,7 +141,7 @@ def opportunities(exchange): # fiat = USD or USDT
     deltas = []
     pairs = []
     
-    btc_pairs = get_pairs(exchange)
+    btc_pairs = get_pairs(exchange[1])
     
     for pair in tqdm(btc_pairs):
 
@@ -201,7 +153,8 @@ def opportunities(exchange): # fiat = USD or USDT
         binance_pair = binance.fetch_ticker(pair)['last']
 
         try:
-            exchange_pair = get_pair(exchange, pair)
+            exchange_pair = get_pair(exchange[0], pair)
+            
         except Exception as e:
             continue
 
@@ -209,12 +162,12 @@ def opportunities(exchange): # fiat = USD or USDT
         deltas.append(delta)
         pairs.append(pair)
     
-    for final_delta, pair 2in zip(deltas, pairs):
+    for final_delta, pair in zip(deltas, pairs):
         if abs(final_delta) >= 2:
             coin = pair.replace('/BTC', '')
-            check_vola(exchange, coin, final_delta)
+            check_vola(exchange[1], coin, final_delta)
         else:
-            print(pair, exchange, 'no opp: lower than 2%')
+            print(pair, exchange[1], 'no opp: lower than 2%')
 
 def mean_confidence_interval(data):
     a = 1.0*np.array(data)
@@ -225,6 +178,6 @@ def mean_confidence_interval(data):
     return m-h, m+h
             
 for exchange in exchanges:
-    print('EXCHANGE:', exchange)
+    print('EXCHANGE:', exchange[1])
     opportunities(exchange)
     print('DONE')
