@@ -12,9 +12,8 @@ import csv
 binance = ccxt.binance() # USDT
 
 #CSV input
-path = '/Users/alexanderreichhardt/Desktop/ExchangesPairs.csv'
-with open(path,'r') as file:
-    reader = csv.reader(file, delimiter=',')
+with open('pairs.csv', 'r') as f:
+    reader = csv.reader(f, delimiter=',')
     header = next(reader)
     final =  [] 
     exchanges = [] 
