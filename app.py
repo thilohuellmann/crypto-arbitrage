@@ -7,17 +7,36 @@ from matplotlib import mlab
 import scipy as sp
 import scipy.stats
 import requests
+import csv
 
 binance = ccxt.binance() # USDT
-bitfinex = ccxt.bitfinex() # USD
-kraken = ccxt.kraken() # USD
-okex = ccxt.okex() # USDT
-bittrex = ccxt.bittrex() # USDT
-hitbtc = ccxt.hitbtc() # USDT
-gdax = ccxt.gdax() # USD
-poloniex = ccxt.poloniex() # USDT
 
-exchanges = [(bitfinex, 'bitfinex'), (kraken, 'kraken'), (okex, 'okex'), (bittrex, 'bittrex'), (hitbtc, 'hitbc'), (gdax, 'gdax'), (poloniex, 'poloniex')]
+#CSV input
+path = '/Users/alexanderreichhardt/Desktop/ExchangesPairs.csv'
+with open(path,'r') as file:
+    reader = csv.reader(file, delimiter=',')
+    header = next(reader)
+    final =  [] 
+    exchanges = [] 
+    usd = []
+    usdt = []
+    
+    for row in reader: 
+        data = []       
+        for i in range(2,len(row)):
+            row[i] = int(row[i])
+            if row[i] == 1:
+                data.append(header[i])           
+        final.append([row[0],data])
+          
+        if row[1] == 'usd':
+            usd.append(row[0])
+        elif row[1] == 'usdt':
+            usdt.append(row[0])
+        
+        formula = getattr(ccxt,row[0])()
+        name = row[0]
+        exchanges.append([formula,name])
 
 def check_vola(exchange, coin, opportunity):
 
@@ -94,8 +113,6 @@ def get_volume(coin, exchange):
         return 0
     
 def get_fiat(exchange):
-    usd = ['bitfinex', 'huobi', 'gdax', 'kraken']
-    usdt = ['okex', 'bittrex', 'hitbtc', 'poloniex']
     
     if exchange in usd:
         fiat = 'USD'
@@ -117,22 +134,13 @@ def get_pair(exchange, pair):
     return pair
 
 def get_pairs(exchange):
-    
-    if exchange == 'okex':
-        btc_pairs = ['BCD/BTC', 'ETH/BTC', 'EOS/BTC', 'TRX/BTC', 'WTC/BTC', 'BTG/BTC', 'NEO/BTC', 'ICX/BTC', 'XLM/BTC', 'LTC/BTC', 'IOTA/BTC', 'ELF/BTC', 'QTUM/BTC', 'HSR/BTC', 'ETC/BTC', 'ZRX/BTC', 'OMG/BTC', 'LRC/BTC', 'MDA/BTC', 'SNT/BTC', 'SUB/BTC', 'BRD/BTC', 'DNT/BTC', 'EDO/BTC', 'XMR/BTC', 'LEND/BTC', 'CTR/BTC', 'LINK/BTC', 'EVX/BTC', 'ZEC/BTC', 'AST/BTC', 'FUN/BTC', 'ENG/BTC', 'REQ/BTC', 'KNC/BTC', 'DASH/BTC', 'MANA/BTC', 'MCO/BTC', 'MTL/BTC', 'DGD/BTC', 'OAX/BTC', 'ARK/BTC', 'NULS/BTC', 'GAS/BTC', 'SALT/BTC', 'ICN/BTC', 'RCN/BTC', 'MTH/BTC', 'RDN/BTC', 'VIB/BTC', 'STORJ/BTC', 'SNGLS/BTC', 'SNM/BTC', 'BNT/BTC', 'PPT/BTC']
-    elif exchange == 'bitfinex':
-        btc_pairs = ['ETH/BTC', 'EOS/BTC', 'XRP/BTC', 'BTG/BTC', 'NEO/BTC', 'BCH/BTC', 'LTC/BTC', 'IOTA/BTC', 'QTUM/BTC', 'ETC/BTC', 'ZRX/BTC', 'TNB/BTC', 'OMG/BTC', 'SNT/BTC', 'EDO/BTC', 'XMR/BTC', 'ZEC/BTC', 'FUN/BTC', 'DASH/BTC']
-    elif exchange == 'bittrex':
-        btc_pairs = ['ETH/BTC', 'ADA/BTC', 'XRP/BTC', 'BTG/BTC', 'NEO/BTC', 'BCH/BTC', 'XLM/BTC', 'LTC/BTC', 'XVG/BTC', 'QTUM/BTC', 'RLC/BTC', 'ETC/BTC', 'OMG/BTC', 'SNT/BTC', 'DNT/BTC', 'XMR/BTC', 'POWR/BTC', 'ZEC/BTC', 'NAV/BTC', 'FUN/BTC', 'LSK/BTC', 'ENG/BTC', 'STRAT/BTC', 'DASH/BTC', 'MANA/BTC', 'MCO/BTC', 'BAT/BTC', 'WINGS/BTC', 'LUN/BTC', 'ARK/BTC', 'SALT/BTC', 'KMD/BTC', 'XZC/BTC', 'RCN/BTC', 'WAVES/BTC', 'VIB/BTC', 'STORJ/BTC', 'ADX/BTC', 'BNT/BTC']
-    elif exchange == 'hitbtc':
-        btc_pairs = ['ETH/BTC', 'EOS/BTC', 'TRX/BTC', 'WTC/BTC', 'XRP/BTC', 'VEN/BTC', 'BTG/BTC', 'NEO/BTC', 'BCH/BTC', 'ICX/BTC', 'LTC/BTC', 'XVG/BTC', 'QTUM/BTC', 'HSR/BTC', 'VIBE/BTC', 'RLC/BTC', 'ETC/BTC', 'ZRX/BTC', 'NEBL/BTC', 'ENJ/BTC', 'OMG/BTC', 'LRC/BTC', 'SNT/BTC', 'SUB/BTC', 'DNT/BTC', 'POE/BTC', 'EDO/BTC', 'FUEL/BTC', 'XMR/BTC', 'LEND/BTC', 'CTR/BTC', 'ARN/BTC', 'EVX/BTC', 'CDT/BTC', 'ZEC/BTC', 'FUN/BTC', 'LSK/BTC', 'STRAT/BTC', 'CND/BTC', 'DASH/BTC', 'MANA/BTC', 'MCO/BTC', 'WINGS/BTC', 'TNT/BTC', 'AMB/BTC', 'LUN/BTC', 'BQX/BTC', 'DGD/BTC', 'OAX/BTC', 'KMD/BTC', 'DLT/BTC', 'ICN/BTC', 'MTH/BTC', 'WAVES/BTC', 'VIB/BTC', 'SNGLS/BTC', 'BNT/BTC', 'PPT/BTC']
-    elif exchange == 'gdax':
-        btc_pairs = ['ETH/BTC', 'LTC/BTC']
-    elif exchange == 'poloniex':
-        btc_pairs = ['ETH/BTC', 'XRP/BTC', 'BCH/BTC', 'XLM/BTC', 'LTC/BTC', 'ETC/BTC', 'ZRX/BTC', 'OMG/BTC', 'XMR/BTC', 'ZEC/BTC', 'BTS/BTC', 'NAV/BTC', 'LSK/BTC', 'STRAT/BTC', 'DASH/BTC', 'GAS/BTC', 'STORJ/BTC']
-    elif exchange == 'kraken':
-        btc_pairs = ['ETH/BTC', 'EOS/BTC', 'XRP/BTC', 'BCH/BTC', 'XLM/BTC', 'LTC/BTC', 'ETC/BTC', 'XMR/BTC', 'ZEC/BTC', 'DASH/BTC', 'ICN/BTC']
-        
+   
+    btc_pairs = []
+    for i in range(len(final)):
+        if final[i][0].lower() == exchange:
+            btc_pairs = final[i][1]
+       
+  
     return btc_pairs
     
 def opportunities(exchange): # fiat = USD or USDT
