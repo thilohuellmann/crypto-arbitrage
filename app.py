@@ -7,9 +7,137 @@ from matplotlib import mlab
 import scipy as sp
 import scipy.stats
 import requests
+from slackclient import SlackClient
+from time import sleep
 #import csv
 
-exchanges = ['binance', 'okex', 'bittrex', 'huobi']
+order_size = 0.01 # in BTC
+volume_needed = order_size * 400
+
+def send_slack_message(message):
+    slack_token = 'INSERT'
+    sc = SlackClient(slack_token)
+
+    sc.api_call(
+      "chat.postMessage",
+      channel="#tothemoon",
+      text=str(message)
+    )
+
+
+def get_volume(coin, price, exchange):
+    
+    pair = coin + '/BTC'
+    
+    try:
+        function = getattr(ccxt,exchange)()
+        volume = function.fetch_ticker(pair)['baseVolume']
+        btc_volume = volume * price
+        
+        #print('volume for', coin, exchange, ':', btc_volume)
+        
+        return btc_volume
+    
+    except:
+        print('volume for', coin, exchange, 'not found in API')
+        return 0
+       
+def mean_confidence_interval(data):
+    a = 1.0*np.array(data)
+    n = len(a)
+    std = np.std(a)
+    m = np.mean(a)
+    h = std * 1
+    return m-h, m+h
+
+def plot_standard_dist(change):
+    plt.hist(change,99)
+    plt.show()
+
+def check_vola(coin, delta, sending_exchange, receiving_exchange):
+    
+    coin = coin.replace('/BTC', '')
+    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + sending_exchange)
+    response = r.json()
+    sending_price_data = response['Data']
+
+    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + receiving_exchange)
+    response = r.json()
+    receiving_price_data = response['Data']
+    
+    sending_avg = []
+    for ex1 in sending_price_data:
+        sending_avg.append((ex1['high']+ex1['low']) / 2)
+    
+    receiving_avg = []
+    for ex2 in receiving_price_data:
+        receiving_avg.append((ex2['high']+ex2['low']) / 2)
+        
+    sending_change = []
+    for i in range(len(sending_avg)-1):
+        yesterday = sending_avg[i]
+        today = sending_avg[i + 1]
+        sending_change.append(((today - yesterday) / yesterday) * 100)
+    
+    receiving_change = []
+    for i in range(len(sending_avg)-1):
+        yesterday = receiving_avg[i]
+        today = receiving_avg[i + 1]
+        receiving_change.append(((today - yesterday) / yesterday) * 100)
+        
+    prices = receiving_change # select "receiving' exchange and check volatility 
+    
+    confidence = mean_confidence_interval(prices)
+    confidence_left = confidence[0]
+    confidence_right = confidence[1]
+    print('confidence:',confidence)
+    
+    if delta >= abs(confidence_left) and delta >= abs(confidence_right):
+        print()
+        print('Buy', coin, 'on', sending_exchange)
+        print('Send to', receiving_exchange)
+        print('Opportunity:', delta)
+        print('Confidence:', confidence)
+        plot_standard_dist(prices)
+        print()
+        
+        message = 'Buy ' + coin + ' on: ' + sending_exchange + '\nSend to: ' + receiving_exchange + '\nOpportunity: ' + str(delta) + '\nConfidence interval: ' + str(confidence) 
+        send_slack_message(message)
+        
+        return True
+    else:
+        print(coin, sending_exchange, receiving_exchange, 'opportunity not in confidence interval')
+        plot_standard_dist(prices)
+        
+        
+    
+########################
+    
+    
+exchanges = ['okex', # 'exmo','gatecoin', 'yobit'
+            'hitbtc',
+            'binance',
+            'bittrex',
+            #'bitfinex',
+            'gdax',
+            'gatecoin',
+            'poloniex',
+            'kraken',
+            #'anxpro',
+            #'liqui',
+            #'bitflyer',
+            #'bitbay',
+            #'bitlish',
+            #'bitstamp',
+            'cex',
+            #'dsx',
+            #'mixcoins',
+            #'quadrigacx',
+            'southxchange']
+            #'wex',
+            #'coinsecure',
+            #'fybsg'
+
 e = [] # interim array
 for exchange in exchanges:
     function = getattr(ccxt,exchange)()
@@ -70,21 +198,21 @@ for exchange, pairs in zip(exchanges, symbols_all_final):
     
     pairs_with_prices = []
     for pair in tqdm(pairs[0]):
-
         price = exchange[0].fetch_ticker(pair)['last']
-        pairs_with_prices.append([pair, price])
-            
+        pairs_with_prices.append([pair, price])    
     
     pairs_with_prices_and_exchange.append(([pairs_with_prices, exchange[1]]))
-
-#print(pairs_with_prices_and_exchange)
 
 
 ########### PRICE DELTAS ###########
 
 opportunity_pairs = []
 
-for pair in final:
+print()
+print('CHECKING VOLUME AND PRICE DELTAS:')
+print()
+
+for pair in tqdm(final):
     prices = []
     ex = []
     for i in range(len(pairs_with_prices_and_exchange)):
@@ -93,7 +221,25 @@ for pair in final:
                 prices.append(pairs_with_prices_and_exchange[i][0][j][1])
                 ex.append(pairs_with_prices_and_exchange[i][1])
                 
-    moon = [pair, prices, ex]
+    moon = [[pair, prices, ex]] #['LTC/USD', [[3.23,232.3,23.3], ['binance', 'okex', 'bittrex']],..]
+    
+    prices = []
+    ex = []
+    
+    for exchange, price in zip(moon[0][2], moon[0][1]):
+        vol = get_volume(pair.replace('/BTC', ''), price, exchange)
+        
+        if vol > volume_needed:
+            prices.append(price)
+            ex.append(exchange)
+
+    jakob = [pair, prices, ex]
+
+    if len(jakob[2]) > 2:
+        moon = jakob
+    else:
+        continue
+    
     min_price = min(moon[1])
     max_price = max(moon[1])
     delta = (min_price / max_price - 1) * 100
@@ -105,88 +251,24 @@ for pair in final:
     
     if abs(delta) > 2:
         opportunity_pairs.append([pair, abs(delta), [min_price, sending_exchange], [max_price, receiving_exchange]])
-    
-#print(opportunity_pairs)
+
+print('Length of opportunity_pairs', len(opportunity_pairs))
 
 ######### VOLATILITY #########
 
-
-def get_volume(coin, exchange):
-    try:
-        r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=1&aggregate=1&e=' + exchange)
-        response = r.json()
-        return response['Data'][0]['volumeto']
-    except:
-        return 0
-
-volume_cleaned = []
-for pair in opportunity_pairs:
-    coin = pair[0].replace('/BTC', '')
-    volume_min = get_volume(coin, pair[2][1])
-    volume_max = get_volume(coin, pair[3][1])
+print('Checking volatility:')
+if len(opportunity_pairs) < 2:
+    print('Volume check left no opportunities :/ no moon today')
     
-    if volume_min >= 0.01 and volume_max >= 0.01:
-        volume_cleaned.append(pair)
+for pair in tqdm(opportunity_pairs):
+    if check_vola(pair[0], pair[1], pair[2][1], pair[3][1]) == True: #if Opp exists
+        print(pair[2][1], 'price:', pair[2][0])
+        print(pair[3][1], 'price:', pair[3][0])
         
-for i in range(len(volume_cleaned)):
-    check_vola(volume_cleaned[i][0], volume_cleaned[i][1], volume_cleaned[i][2][1], volume_cleaned[i][3][1]) 
+        prices_message = str(pair[2][1]) + ' price: ' + str(pair[2][0]) + '\n' + str(pair[3][1]) + ' price: ' + str(pair[3][0])
         
-        
-def mean_confidence_interval(data):
-    a = 1.0*np.array(data)
-    n = len(a)
-    std = np.std(a)
-    m = np.mean(a)
-    h = std * 1.68
-    return m-h, m+h
-
-def plot_standard_dist(change):
-    plt.hist(change,99)
-    plt.show()
-
-def check_vola(coin, delta, sending_exchange, receiving_exchange):
-
-    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + sending_exchange)
-    response = r.json()
-    sending_price_data = response['Data']
-
-    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + receiving_exchange)
-    response = r.json()
-    receiving_price_data = response['Data']
+        send_slack_message(prices_message + '\n --------------- \n')
     
-    sending_avg = []
-    for ex1 in sending_price_data:
-        sending_avg.append((ex1['high']+ex1['low']) / 2)
-    
-    receiving_avg = []
-    for ex2 in receiving_price_data:
-        receiving_avg.append((ex2['high']+ex2['low']) / 2)
-        
-    sending_change = []
-    for i in range(len(sending_avg)-1):
-        yesterday = sending_avg[i]
-        today = sending_avg[i + 1]
-        sending_change.append(((today - yesterday) / yesterday) * 100)
-    
-    receiving_change = []
-    for i in range(len(sending_avg)-1):
-        yesterday = receiving_avg[i]
-        today = receiving_avg[i + 1]
-        receiving_change.append(((today - yesterday) / yesterday) * 100)
-        
-    prices = receiving_change # select "receiving' exchange and check volatility 
-    
-    confidence = mean_confidence_interval(prices)
-    confidence_left = confidence[0]
-    confidence_right = confidence[1]
-    
-    if delta >= abs(confidence_left) and delta >= abs(confidence_right):
-        print()
-        print(exchange, coin)
-        print('Opportunity:', opportunity)
-        print('Confidence:', confidence)
-        print(buy_signal)
-        plot_standard_dist(prices)
-        print()
-    else:
-        print(coin, sending_exchange, receiving_exchange, 'opportunity not in confidence interval')        
+    print()
+    print('--------------------------- NEXT ----------------------------')
+    print()
