@@ -7,7 +7,7 @@ from matplotlib import mlab
 import scipy as sp
 import scipy.stats
 import requests
-from slackclient import SlackClient
+#from slackclient import SlackClient
 from time import sleep
 #import csv
 
@@ -119,27 +119,33 @@ def all_exchanges_for_symbol(symbols, shared_pairs):
     
 symbols_with_exchanges = all_exchanges_for_symbol(symbols,shared_pairs) 
 
+def get_volume(coin, exchange):
+    
+    pair = coin + '/BTC'
+    
+    try:
+        function = getattr(ccxt,exchange)()
+        volume = function.fetch_ticker(pair)['baseVolume']
+        btc_volume = volume 
+        
+        #print('volume for', coin, exchange, ':', btc_volume)
+        
+        return btc_volume
+    
+    except:
+        print('volume for', coin, exchange, 'not found in API')
+        return 0   
 
-data = {}
-for symbol in symbols_with_exchanges:
-    data[symbol[0]] = symbol[1]
-    json_data = json.dumps(data)
-            
-print(data)
-
-
-"""
-    {
-        "ETH/BTC": { 
-            
-            "exchanges": [
-                
-                {"name": "binance", "price": 100, "volume": 5},
-                {"name": "binance", "price": 100, "volume": 5},
-                {"name": "binance", "price": 100, "volume": 5},
-                
-            ]
-            
-        }
-        }
-"""
+final_dict = {}
+#symbols_with_exchanges = [['TRX/BTC', ['okex', 'hitbtc', 'gatecoin', 'binance']], ['OMG/BTC', ['okex', 'hitbtc', 'binance']]]
+for i in range(len(symbols_with_exchanges)):
+    pair = symbols_with_exchanges[i][0]
+    print(pair)
+    final_dict[pair] = {}
+    final_dict[pair]["exchanges"] = {}
+    for exchange in tqdm(symbols_with_exchanges[i][1]):
+        final_dict[pair]["exchanges"][exchange] = {
+                                "price": getattr(ccxt,exchange)().fetch_ticker(pair)['last'],
+                                "volume": get_volume(symbols_with_exchanges[i][0].replace('/BTC', ''),exchange)
+                                }
+   
