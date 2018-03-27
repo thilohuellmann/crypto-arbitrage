@@ -9,13 +9,55 @@ import scipy.stats
 import requests
 from slackclient import SlackClient
 from time import sleep
-#import csv
+import csv
+import datetime
 
-order_size = 0.01 # in BTC
-volume_needed = order_size * 400
+
+# Free Trial (1 opportunity (the best one) + blurred ones)
+# 4,99€ subscription for full acess
+# (100 seats – in percent?) 999€ lifetime but 'contact us'
+# Opportunities: Discord, Telegram, Whatsapp, SMS (Twilio), Email, Slack
+# Spread: Friends / Berlin, Telegram Chats, Twitter, betalist, hackernews, reddit, ProductHunt, Bitcointalk(Foren)
+# plot
+# volatility within our or across hourly avg? baevillage
+
+def transfer_price(base_currency):
+    r = requests.get('https://min-api.cryptocompare.com/data/price?fsym=' + base_currency + '&tsyms=BTC')
+    response = r.json()
+    price = response['BTC']
+    return price
+        
+
+exchanges = ['okex',
+            'hitbtc',
+            'binance',
+            'bittrex',
+            'bitfinex',
+            'kucoin',
+            'gdax',
+            'poloniex',
+            'kraken',
+            'liqui',
+            'bitstamp']
+            #'bitflyer',
+            #'anxpro',
+            #'gatecoin',
+            #'yobit',
+            #'exmo',
+            #'bitbay',
+            #'bitlish',
+            #'cex',
+            #'dsx',
+            #'mixcoins',
+            #'quadrigacx',
+            #'southxchange',
+            #'wex',
+            #'fybsg',
+            #'coinsecure']
+
 
 def send_slack_message(message):
-    slack_token = 'INSERT'
+    slack_token = 'xoxp-300307099735-299365271877-320690374373-01a01d6df8232b58efdafe0a33bb68f8'
     sc = SlackClient(slack_token)
 
     sc.api_call(
@@ -23,120 +65,201 @@ def send_slack_message(message):
       channel="#tothemoon",
       text=str(message)
     )
+                      
+
+def get_ccxt(exchange):
+    function = getattr(ccxt,exchange)()
+    return function
+
+def get_shared_pairs(exchanges, base_currency):
+    
+    symbols = []
+    for exchange in exchanges:
+        
+        pairs = []
+        try:
+            exchange[0].load_markets()
+            pairs = list(exchange[0].markets.keys())
+        except Exception as e:
+            print(e)
+            print(exchange[1], 'connection not possible with ccxt')
+            continue
+        
+        for pair in pairs:
+            if '/' + base_currency in pair:
+                symbols.append([pair, exchange[1]])
+                
+            
+    return symbols
 
 
-def get_volume(coin, price, exchange):
+def dedup(symbols):
     
-    pair = coin + '/BTC'
+    total = []
+    for s in symbols:
+        total.append(s[0])
+
+    dedup = [] # all pairs that are listed on 2+ exchanges
+    for symbol in total:
+        if total.count(symbol) > 1:
+            dedup.append(symbol)
+
+    dedup = list(set(dedup))
+    return dedup
+
+
+def all_exchanges_for_symbol(symbols, shared_pairs):
+
+    symbols_with_exchanges = []
+    for symbol in symbols:
+        
+        helper_array = []
+        for pair in shared_pairs:
+            
+            if symbol == pair[0]:
+                helper_array.append(pair[1])
+
+        symbols_with_exchanges.append([symbol, helper_array])
     
+    return symbols_with_exchanges
+      
+def get_volume(coin,base_currency,exchange,volume_needed):
     try:
-        function = getattr(ccxt,exchange)()
-        volume = function.fetch_ticker(pair)['baseVolume']
-        btc_volume = volume * price
-        
-        #print('volume for', coin, exchange, ':', btc_volume)
-        
-        return btc_volume
-    
-    except:
-        print('volume for', coin, exchange, 'not found in API')
+        coin = coin.replace('/' + base_currency, '')
+        r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym='+ coin + '&tsym='+ base_currency + '&limit=1&aggregate=1&e=' + exchange)
+        response = r.json()
+        volume_in_base_currency = response['Data'][0]['volumeto']
+        print(coin,exchange,', volume_api: ',volume_in_base_currency)
+        print(coin,exchange,', volume_needed ',volume_needed)
+        if volume_in_base_currency > volume_needed:
+            return volume_in_base_currency
+        else:
+            return 0
+    except Exception as e:
+        print(e)
         return 0
-       
+    
+def get_vola(coin, base_currency, receiving_exchange):
+    
+    coin = coin.replace('/' + base_currency, '')
+    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=' + base_currency + '&limit=101&e=' + receiving_exchange)
+    response = r.json()
+    receiving_price_data = response['Data']
+    
+    receiving_change = []
+    try:
+        for ex1 in receiving_price_data:
+            receiving_change.append(abs((ex1['high'] - ex1['low']) / ex1['low']) * 100)
+    except Exception as e:
+        print(e)
+        print('price not found')
+        
+    price_volatility = receiving_change
+    
+    return price_volatility
+
+
+def confidence_check(delta, price_volatility):
+    
+    confidence = mean_confidence_interval(price_volatility)
+    confidence_left = confidence[0]
+    confidence_right = confidence[1]
+    print(delta)
+    print('confidence_left: ', abs(confidence_left))
+    print('confidence_right: ', abs(confidence_right))
+    if delta >= abs(confidence_left) and delta >= abs(confidence_right):
+        return str(confidence_left) + ', ' + str(confidence_right)
+    else:
+        return False
+    
 def mean_confidence_interval(data):
     a = 1.0*np.array(data)
     n = len(a)
     std = np.std(a)
     m = np.mean(a)
-    h = std * 1
+    h = std * 1.68
     return m-h, m+h
 
 def plot_standard_dist(change):
-    plt.hist(change,99)
+    hi = plt.hist(change,99)
     plt.show()
+    return
+        
+def dict_creation(symbols_with_exchanges, base_currency, volume_needed):
+    
+    final_dict = {}
+    for i in tqdm(range(len(symbols_with_exchanges))):#len(symbols_with_exchanges
+        pair = symbols_with_exchanges[i][0]
+        
+        final_dict[pair] = {}
+        final_dict[pair]["exchanges"] = {}
+        
+        r = requests.get('https://min-api.cryptocompare.com/data/price?fsym=' + pair.replace('/' + base_currency, '') + '&tsyms=' + base_currency)
+        response = r.json()
+        
+        try:
+            general_price = response[base_currency]
+        except Exception as e:
+            print(e)
+            continue
 
-def check_vola(coin, delta, sending_exchange, receiving_exchange):
-    
-    coin = coin.replace('/BTC', '')
-    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + sending_exchange)
-    response = r.json()
-    sending_price_data = response['Data']
+        try:
+            for exchange in symbols_with_exchanges[i][1]:
+                volume = get_volume(pair, base_currency, exchange, volume_needed)
 
-    r = requests.get('https://min-api.cryptocompare.com/data/histohour?fsym=' + coin + '&tsym=BTC&limit=101&e=' + receiving_exchange)
-    response = r.json()
-    receiving_price_data = response['Data']
+                if volume != 0:
+                    final_dict[pair]["exchanges"][exchange] = {
+                                            "price": getattr(ccxt,exchange)().fetch_ticker(pair)['last'],
+                                            "volume": volume
+                    }
+                else:
+                    continue
+        except Exception as e:
+            print(e)
+            continue
+
+    return final_dict
+
+def opportunity(symbols_dict):
     
-    sending_avg = []
-    for ex1 in sending_price_data:
-        sending_avg.append((ex1['high']+ex1['low']) / 2)
-    
-    receiving_avg = []
-    for ex2 in receiving_price_data:
-        receiving_avg.append((ex2['high']+ex2['low']) / 2)
+    opportunities = []
+    for symbol in symbols_dict:
         
-    sending_change = []
-    for i in range(len(sending_avg)-1):
-        yesterday = sending_avg[i]
-        today = sending_avg[i + 1]
-        sending_change.append(((today - yesterday) / yesterday) * 100)
-    
-    receiving_change = []
-    for i in range(len(sending_avg)-1):
-        yesterday = receiving_avg[i]
-        today = receiving_avg[i + 1]
-        receiving_change.append(((today - yesterday) / yesterday) * 100)
-        
-    prices = receiving_change # select "receiving' exchange and check volatility 
-    
-    confidence = mean_confidence_interval(prices)
-    confidence_left = confidence[0]
-    confidence_right = confidence[1]
-    print('confidence:',confidence)
-    
-    if delta >= abs(confidence_left) and delta >= abs(confidence_right):
-        print()
-        print('Buy', coin, 'on', sending_exchange)
-        print('Send to', receiving_exchange)
-        print('Opportunity:', delta)
-        print('Confidence:', confidence)
-        plot_standard_dist(prices)
-        print()
-        
-        message = 'Buy ' + coin + ' on: ' + sending_exchange + '\nSend to: ' + receiving_exchange + '\nOpportunity: ' + str(delta) + '\nConfidence interval: ' + str(confidence) 
-        send_slack_message(message)
-        
-        return True
-    else:
-        print(coin, sending_exchange, receiving_exchange, 'opportunity not in confidence interval')
-        plot_standard_dist(prices)
-        
-        
-    
-########################
-    
-    
-exchanges = ['okex', # 'exmo','gatecoin', 'yobit'
-            'hitbtc',
-            'binance',
-            'bittrex',
-            #'bitfinex',
-            'gdax',
-            'gatecoin',
-            'poloniex',
-            'kraken',
-            #'anxpro',
-            #'liqui',
-            #'bitflyer',
-            #'bitbay',
-            #'bitlish',
-            #'bitstamp',
-            'cex',
-            #'dsx',
-            #'mixcoins',
-            #'quadrigacx',
-            'southxchange']
-            #'wex',
-            #'coinsecure',
-            #'fybsg'
+        if len(symbols_dict[symbol]['exchanges']) == 1:
+            continue
+            
+        else:
+            price_list = []
+            for exchange in symbols_dict[symbol]['exchanges']:
+                price_list.append([exchange, symbols_dict[symbol]['exchanges'][exchange]['price']])
+            
+            deltas = []
+            for price in price_list:
+                for price2 in price_list:
+                    
+                    if price[1] > price2[1]:
+                        delta = abs(price[1] / price2[1] - 1) * 100
+                            
+                        if delta < 100 and delta > 2 and delta not in deltas:
+                            deltas.append(delta)
+                            opportunities.append([delta, symbol, [price2[0], price2[1]], [price[0], price[1]]])
+                        else:
+                            continue
+                        
+                    else:
+                        delta = abs(price2[1] / price[1] - 1) * 100
+                        
+                        if delta < 100 and delta > 2 and delta not in deltas:
+                            deltas.append(delta)
+                            opportunities.append([delta, symbol, [price[0], price[1]], [price2[0], price2[1]]])
+                        else:
+                            continue
+                
+    return opportunities
+            ##opportunities.append([delta, symbol, [price[0], price[1]], [price2[0], price2[1]]]) 
+
+
+############################################################
 
 e = [] # interim array
 for exchange in exchanges:
@@ -145,130 +268,42 @@ for exchange in exchanges:
 
 exchanges = e
 
-########### FIND PAIRS THAT ARE ON 2+ EXCHANGES #############
-
-symbols_all = []
-
-for exchange in exchanges:
-    exchange[0].load_markets()
-    pairs = list(exchange[0].markets.keys())
+def main_function():
     
-    symbols_single = []
+    order_size = 0.001 # in BTC
+    volume_needed = order_size * 40
+    base_currencies = ['BTC', 'ETH', 'USDT', 'USD']
     
-    for pair in pairs:
-        if '/BTC' in pair:
-            symbols_single.append(pair)
+    for base_currency in base_currencies:
+        volume_needed = volume_needed / transfer_price(base_currency)
+        print(volume_needed)
+        print(base_currency)
+        
+        symbols = get_shared_pairs(exchanges, base_currency)
+        deduped_symbols = dedup(symbols)
+        
+        symbols_with_exchanges = all_exchanges_for_symbol(deduped_symbols, symbols)
+        
+        print('Creating dict:')
+        symbols_dict = dict_creation(symbols_with_exchanges, base_currency, volume_needed)
+
+        opportunity_pairs = opportunity(symbols_dict)
+        print(opportunity_pairs)
+        
+        print('Checking opportunities:')
+        for opportunity_pair in tqdm(opportunity_pairs):
+            price_volatility = get_vola(opportunity_pair[1], base_currency, opportunity_pair[3][0])
+            confidence = confidence_check(opportunity_pair[0], price_volatility)
             
-    symbols_all.append([list(set(symbols_single)), exchange[1]])
-
-full = []
-for s in symbols_all:
-    
-    for i in s[0]:
-        full.append(i)
+            if confidence != False:
+                    
+                prices_message = 'Buy '+ opportunity_pair[1] +' on: '+ opportunity_pair[2][0] +' ('+ str(opportunity_pair[2][1]) +')\nSend to: '+ opportunity_pair[3][0]+' ('+ str(opportunity_pair[3][1]) +')\nOpportunity: '+ str(opportunity_pair[0])+  '\nConfidence: ' + str(confidence)
+                send_slack_message(prices_message + '\n --------------- \n')
+                 
+                print(opportunity_pair, 'moon!')
+            else:
+                print('no moon')
         
 
-final = [] # all pairs that are listed on 2+ exchanges
-for symbol in full:
-    if full.count(symbol) > 1:
-        final.append(symbol)
-
-final = list(set(final))
-
-symbols_all_final = [] ######## !!!!!!! <<<<<<<
-
-for exchange in symbols_all:
-    alex = []
-    for i in exchange[0]:
-        if i in final:
-            alex.append(i)
-            
-    symbols_all_final.append([alex, exchange[1]])
-
-#print(symbols_all_final)
-
-########### PRICES ############
-
-# RESULT: pairs_with_prices = [[['LTC/BTC', 100], ['ETH/BTC', 200]], 'binance']
-
-
-pairs_with_prices_and_exchange = []
-
-for exchange, pairs in zip(exchanges, symbols_all_final):
-    
-    pairs_with_prices = []
-    for pair in tqdm(pairs[0]):
-        price = exchange[0].fetch_ticker(pair)['last']
-        pairs_with_prices.append([pair, price])    
-    
-    pairs_with_prices_and_exchange.append(([pairs_with_prices, exchange[1]]))
-
-
-########### PRICE DELTAS ###########
-
-opportunity_pairs = []
-
-print()
-print('CHECKING VOLUME AND PRICE DELTAS:')
-print()
-
-for pair in tqdm(final):
-    prices = []
-    ex = []
-    for i in range(len(pairs_with_prices_and_exchange)):
-        for j in range(len(pairs_with_prices_and_exchange[i][0])):
-            if pair == pairs_with_prices_and_exchange[i][0][j][0]:
-                prices.append(pairs_with_prices_and_exchange[i][0][j][1])
-                ex.append(pairs_with_prices_and_exchange[i][1])
-                
-    moon = [[pair, prices, ex]] #['LTC/USD', [[3.23,232.3,23.3], ['binance', 'okex', 'bittrex']],..]
-    
-    prices = []
-    ex = []
-    
-    for exchange, price in zip(moon[0][2], moon[0][1]):
-        vol = get_volume(pair.replace('/BTC', ''), price, exchange)
-        
-        if vol > volume_needed:
-            prices.append(price)
-            ex.append(exchange)
-
-    jakob = [pair, prices, ex]
-
-    if len(jakob[2]) > 2:
-        moon = jakob
-    else:
-        continue
-    
-    min_price = min(moon[1])
-    max_price = max(moon[1])
-    delta = (min_price / max_price - 1) * 100
-    
-    min_index = moon[1].index(min(moon[1]))
-    max_index = moon[1].index(max(moon[1]))
-    sending_exchange = moon[2][min_index]
-    receiving_exchange = moon[2][max_index]
-    
-    if abs(delta) > 2:
-        opportunity_pairs.append([pair, abs(delta), [min_price, sending_exchange], [max_price, receiving_exchange]])
-
-print('Length of opportunity_pairs', len(opportunity_pairs))
-
-######### VOLATILITY #########
-
-print('Checking volatility:')
-if len(opportunity_pairs) < 2:
-    print('Volume check left no opportunities :/ no moon today')
-    
-for pair in tqdm(opportunity_pairs):
-    if check_vola(pair[0], pair[1], pair[2][1], pair[3][1]) == True: #if Opp exists
-        print(pair[2][1], 'price:', pair[2][0])
-        print(pair[3][1], 'price:', pair[3][0])
-        
-        prices_message = str(pair[2][1]) + ' price: ' + str(pair[2][0]) + '\n' + str(pair[3][1]) + ' price: ' + str(pair[3][0])
-        
-        send_slack_message(prices_message + '\n --------------- \n')
-    
-    print()
-    print('--------------------------- NEXT ----------------------------')
-    print()
+main_function()
+print('DONE')
